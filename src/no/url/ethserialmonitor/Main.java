@@ -12,9 +12,7 @@ import java.net.InetAddress;
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -78,8 +76,42 @@ public class Main implements Runnable {
 							+ "server=127.0.0.1:3333\r\n\r\n"
 							+ "#Com Port: COM{port number}\r\n" //TODO: Windows is COM{#}, Linux maybe ttyS{#},ttyUSB{#}, or even /dev/ttyS{#},/dev/ttyUSB{#}
 							+ "com_port=COM1\r\n\r\n"
-							//+ "#Example: server={ipaddress}:{port}\r\n" 
-							//+ "server=127.0.0.1:3333\r\n\r\n"
+							+ "##Update delays\r\n" + "delay_sec_show=1000\r\n" + "delay_fsec_show=2000\r\n"
+							+ "delay_halfmin_show=2000\r\n" + "\r\n" + "\r\n" + "# Line configuration:\r\n"
+							+ "#    -variables-\r\n" + "# All values truncated left (150.63 = 6 spaces)\r\n"
+							+ "# Total size must equal LCD size for line (16 spaces)\r\n"
+							+ "# Do not exceed 9 spaces per variable, \r\n"
+							+ "# 10's are counted as 1 and a 0 Character\r\n"
+							+ "# avghash.{spaces} = Average Hashrate\r\n"
+							+ "# avgtemp.{spaces} = Average Temperature\r\n"
+							+ "# avgfan.{spaces} = Average Fan Speed\r\n"
+							+ "# shares.{spaces} = Total Current Amount of Shares\r\n"
+							+ "# shareavg.{spaces} = Average Shares per Minute\r\n"
+							+ "# invalid.{spaces} = Invalid Shares\r\n"
+							+ "# runtime.{spaces} = Total Current Runtime in Minutes\r\n"
+							+ "# totwatt.{spaces} = Total Wattage Calculated\r\n"
+							+ "# gpu{id}.hash{spaces} = Hashrate of specific GPU\r\n"
+							+ "# gpu{id}.temp{spaces} = Temperature of specific GPU\r\n"
+							+ "# gpu{id}.fan{spaces} = Fan speed of specific GPU\r\n"
+							+ "# gpu{id}.watt{spaces} = Wattage of specific GPU\r\n"
+							+ "# pool. = Show the pool connected (Single Line)\r\n" + "\r\n" + "#Show every second\r\n"
+							+ "#Multiple line group accepted (not recommended)\r\n" + "sec_line1=avghash.7 MH/s \r\n"
+							+ "sec_line2=avgtemp.2C avgfan.2% totwatt.5W\r\n" + "\r\n" + "#Show every five second\r\n"
+							+ "#Alternate Display\r\n" + "#Multiple line groups accepted\r\n"
+							+ "fsec_line1=shares.3 Shares \r\n" + "fsec_line2=invalid.3 Invalid\r\n" + "\r\n"
+							+ "fsec_line1=shareavg.7 Avg/min\r\n" + "fsec_line2=runtime.2 mins\r\n" + "\r\n"
+							+ "fsec_line1=pool.\r\n" + "fsec_line2=Mine On!\r\n" + "\r\n"
+							+ "#Show every 30 seconds \r\n" + "#Loops through all line groups\r\n"
+							+ "#Multiple line groups accepted\r\n" + "halfmin_line1=GPU#1 gpu0.hash5 MH/s\r\n"
+							+ "halfmin_line2=gpu0.temp2C gpu0.fan2% gpu0.watt2W\r\n" + "\r\n"
+							+ "halfmin_line1=GPU#2 gpu1.hash5 MH/s\r\n"
+							+ "halfmin_line2=gpu1.temp2C gpu1.fan2% gpu1.watt2W\r\n" + "\r\n"
+							+ "halfmin_line1=GPU#3 gpu2.hash5 MH/s\r\n"
+							+ "halfmin_line2=gpu2.temp2C gpu2.fan2% gpu2.watt2W\r\n" + "\r\n"
+							+ "halfmin_line1=GPU#4 gpu3.hash5 MH/s\r\n"
+							+ "halfmin_line2=gpu3.temp2C gpu3.fan2% gpu3.watt2W\r\n" + "\r\n"
+							+ "halfmin_line1=GPU#5 gpu4.hash5 MH/s\r\n"
+							+ "halfmin_line2=gpu4.temp2C gpu4.fan2% gpu4.watt2W\r\n" + "\r\n"
 							);
 					bw.close();
 				} catch (IOException e) {
