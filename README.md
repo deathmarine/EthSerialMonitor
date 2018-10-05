@@ -10,16 +10,27 @@ To see the state of a headless miner, regardless of OS, by mounting a small inex
 ## Scope
 *****
 
-IP and Port configurable. //TODO
-Com Port configurable. //TODO
+IP and Port configurable. !Done!
+
+Com Port configurable. !Done!
+
 Alternative Logfile Reader. //TODO
+
 std::out Wrapper. //Probably not
-Display configurable. //TODO
-Timing configurable. //TODO
+
+Display configurable. !Done!
+
+Display Size Configurable ex. 20x2 or 20x4 //TODO
+
+Timing configurable. !Done!
+
 RGB configurable. //TODO
+
 RGB presets. //TODO
-Better Console Presentation.
-More and Less Verbose Console Output.
+
+Better Console Presentation. //TODO
+
+More and Less Verbose Console Output. //TODO
 
 
 ## Compilation
@@ -63,10 +74,12 @@ For example:
 ethminer.exe -HWMON 1 -RH -G -P stratum+tcp://abcdefghijklmnopqrstuvwxyz1234567890.your_name_here@us1.ethermine.org:4444 --opencl-device 0 --api-port -3333
 ```
 Optionally in linux you can run ethminer headless/nogui, with this gist.
+
 [Headless Script](https://gist.github.com/deathmarine/f29f541318247b9066a00194da08ad2f)
 
 
 Point EthSerialMonitor to your server by adding lines to you initialization file (config.ini). //TODO
+
 If you do not have a config.ini one will be generated for you on start up. //TODO
 
 
