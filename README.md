@@ -84,7 +84,7 @@ Point EthSerialMonitor to your server by adding lines to you initialization file
 
 # IPaddress and port of the server to pole
 # Example: server={ipaddress}:{port}
-server=192.168.50.77:3333
+server=127.0.01:3333
 hwmon=true
 
 # Com Port: COM{port number}
