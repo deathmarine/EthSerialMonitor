@@ -2,6 +2,7 @@ package no.url.ethserialmonitor;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -23,16 +24,14 @@ import org.json.simple.parser.ParseException;
 
 import com.fazecast.jSerialComm.SerialPort;
 
-import no.url.ethmonitor.Server;
-import no.url.ethmonitor.Status;
-import no.url.ethmonitor.StatusHR;
-import no.url.ethmonitor.StatusOne;
+import no.url.ethapi.Server;
+import no.url.ethapi.Status;
+import no.url.ethapi.StatusDetail;
+import no.url.ethapi.StatusHR;
+import no.url.ethapi.StatusOne;
 
 public class Main implements Runnable {
 	static Thread main;
-	
-	static String OVERALL_STATUS = "{\"id\":0,\"jsonrpc\":\"2.0\",\"method\": \"miner_getstat1\"}\r\n";
-	static String DETAILED_STATUS = "{\"id\":0,\"jsonrpc\":\"2.0\",\"method\": \"miner_getstathr\"}\r\n";
 
 	static boolean RUNNING = true;
 	static boolean DISCONNECTED = false;
@@ -43,26 +42,92 @@ public class Main implements Runnable {
 	
 	Server server;
 	String com_port;
-	boolean hwmon;
+	//boolean hwmon = false;
+	boolean verbose = true;
 	
-	int delay_sec_show;
-	int delay_fsec_show;
-	int delay_halfmin_show;
+	int delay_sec_show = 1000;
+	int delay_fsec_show = 1000;
+	int delay_halfmin_show = 2000;
 
 	private Socket sock; // Keep socket open.
 	private BufferedWriter bw; // Closing the writer terminates the socket
 	private BufferedReader br;
+	
+	String default_lines = 
+			"#Show every second\r\n"
+			+ "#Multiple line group accepted (not recommended)\r\n" 
+			+ "sec_line1=avghash.7 MH/s \r\n"
+			+ "sec_line2=avgtemp.2C avgfan.2% totwatt.5W\r\n" + "\r\n" 
+			+ "#Show every five second\r\n"
+			+ "#Alternate Display\r\n" 
+			+ "#Multiple line groups accepted\r\n"
+			+ "fsec_line1=shares.3 Shares \r\n" 
+			+ "fsec_line2=invalid.3 Invalid\r\n" + "\r\n"
+			+ "fsec_line1=shareavg.7 Avg/min\r\n" 
+			+ "fsec_line2=runtime.2 mins\r\n" + "\r\n"
+			+ "fsec_line1=pool.\r\n" 
+			+ "fsec_line2=Mine On!\r\n" + "\r\n"
+			+ "#Show every 30 seconds \r\n" + "#Loops through all line groups\r\n"
+			+ "#Multiple line groups accepted\r\n" + "halfmin_line1=GPU#1 gpu0.hash5 MH/s\r\n"
+			+ "halfmin_line2=gpu0.temp2C gpu0.fan2% gpu0.watt2W\r\n" + "\r\n"
+			+ "halfmin_line1=GPU#2 gpu1.hash5 MH/s\r\n"
+			+ "halfmin_line2=gpu1.temp2C gpu1.fan2% gpu1.watt2W\r\n" + "\r\n"
+			+ "halfmin_line1=GPU#3 gpu2.hash5 MH/s\r\n"
+			+ "halfmin_line2=gpu2.temp2C gpu2.fan2% gpu2.watt2W\r\n" + "\r\n"
+			+ "halfmin_line1=GPU#4 gpu3.hash5 MH/s\r\n"
+			+ "halfmin_line2=gpu3.temp2C gpu3.fan2% gpu3.watt2W\r\n" + "\r\n"
+			+ "halfmin_line1=GPU#5 gpu4.hash5 MH/s\r\n"
+			+ "halfmin_line2=gpu4.temp2C gpu4.fan2% gpu4.watt2W\r\n" + "\r\n";
 	
 	List<String[]> sec_lines = new ArrayList<String[]>();
 	List<String[]> fsec_lines = new ArrayList<String[]>();
 	List<String[]> hmin_lines = new ArrayList<String[]>();
 	
 	Status status;
-	
+	int r = 0,g = 0,b = 0;
 	
 	public Main(String[] args) {
 		if(args.length > 0) {
-			
+			for(String arg :args) {
+				if(arg.contains("--server=") || arg.matches("-[sS]=")) {
+					String kv = arg.split("=")[1];
+					if (kv.contains(":")) {
+						String[] ip_port = kv.split(":");
+						server = new Server(ip_port[0], Integer.parseInt(ip_port[1]));
+					} else {
+						server = new Server(kv, 3333);
+					}
+				}
+				if(arg.contains("--com_port=") || arg.matches("-[cC]=")) {
+					com_port = arg.split("=")[1];
+				}
+				/*
+				if (arg.contains("--hwmon=") || arg.matches("-[mM]=")) {
+					String kv = arg.split("=")[1];
+					hwmon = kv.equalsIgnoreCase("true");
+				}*/
+			}
+			boolean fail = false;
+			if(server == null) {
+				System.out.println("No Server Argument!\r\n--server or -s");
+				fail = true;
+			}
+			if(com_port == null) {
+				System.out.println("No Com Port Argument!\r\n--com_port or -c");
+				fail = true;
+			}
+			if(fail) {
+				System.out.println("Failed to start!\r\nUse configuration or start with required arguements!\r\nType --help / -h");
+				System.exit(1);
+			}
+			try {
+				BufferedReader br = new BufferedReader(new InputStreamReader(new ByteArrayInputStream(default_lines.getBytes())));
+				this.fillSettings(br);
+				br.close();
+			} catch (NumberFormatException | IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
 		} else {
 			File config = new File("config.ini");
 			if (!config.exists()) {
@@ -71,10 +136,11 @@ public class Main implements Runnable {
 					config.createNewFile();
 					BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(config)));
 					bw.write("## Configuration ##\r\n\r\n"
+							+ "verbose=true\r\n"
 							+ "#IPaddress and port of the server to pole\r\n"
 							+ "#Example: server={ipaddress}:{port}\r\n" 
 							+ "server=127.0.0.1:3333\r\n\r\n"
-							+ "#Com Port: COM{port number}\r\n" //TODO: Windows is COM{#}, Linux maybe ttyS{#},ttyUSB{#}, or even /dev/ttyS{#},/dev/ttyUSB{#}
+							+ "#Com Port: COM{port number}\r\n" //TODO: Windows is COM{#}, Linux ttyS{#},ttyUSB{#}
 							+ "com_port=COM1\r\n\r\n"
 							+ "##Update delays\r\n" + "delay_sec_show=1000\r\n" + "delay_fsec_show=2000\r\n"
 							+ "delay_halfmin_show=2000\r\n" + "\r\n" + "\r\n" + "# Line configuration:\r\n"
@@ -94,24 +160,8 @@ public class Main implements Runnable {
 							+ "# gpu{id}.temp{spaces} = Temperature of specific GPU\r\n"
 							+ "# gpu{id}.fan{spaces} = Fan speed of specific GPU\r\n"
 							+ "# gpu{id}.watt{spaces} = Wattage of specific GPU\r\n"
-							+ "# pool. = Show the pool connected (Single Line)\r\n" + "\r\n" + "#Show every second\r\n"
-							+ "#Multiple line group accepted (not recommended)\r\n" + "sec_line1=avghash.7 MH/s \r\n"
-							+ "sec_line2=avgtemp.2C avgfan.2% totwatt.5W\r\n" + "\r\n" + "#Show every five second\r\n"
-							+ "#Alternate Display\r\n" + "#Multiple line groups accepted\r\n"
-							+ "fsec_line1=shares.3 Shares \r\n" + "fsec_line2=invalid.3 Invalid\r\n" + "\r\n"
-							+ "fsec_line1=shareavg.7 Avg/min\r\n" + "fsec_line2=runtime.2 mins\r\n" + "\r\n"
-							+ "fsec_line1=pool.\r\n" + "fsec_line2=Mine On!\r\n" + "\r\n"
-							+ "#Show every 30 seconds \r\n" + "#Loops through all line groups\r\n"
-							+ "#Multiple line groups accepted\r\n" + "halfmin_line1=GPU#1 gpu0.hash5 MH/s\r\n"
-							+ "halfmin_line2=gpu0.temp2C gpu0.fan2% gpu0.watt2W\r\n" + "\r\n"
-							+ "halfmin_line1=GPU#2 gpu1.hash5 MH/s\r\n"
-							+ "halfmin_line2=gpu1.temp2C gpu1.fan2% gpu1.watt2W\r\n" + "\r\n"
-							+ "halfmin_line1=GPU#3 gpu2.hash5 MH/s\r\n"
-							+ "halfmin_line2=gpu2.temp2C gpu2.fan2% gpu2.watt2W\r\n" + "\r\n"
-							+ "halfmin_line1=GPU#4 gpu3.hash5 MH/s\r\n"
-							+ "halfmin_line2=gpu3.temp2C gpu3.fan2% gpu3.watt2W\r\n" + "\r\n"
-							+ "halfmin_line1=GPU#5 gpu4.hash5 MH/s\r\n"
-							+ "halfmin_line2=gpu4.temp2C gpu4.fan2% gpu4.watt2W\r\n" + "\r\n"
+							+ "# pool. = Show the pool connected (Single Line)\r\n" + "\r\n" 
+							+ default_lines
 							);
 					bw.close();
 				} catch (IOException e) {
@@ -120,120 +170,133 @@ public class Main implements Runnable {
 			}
 			try {
 				BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(config)));
-				String[] lines = new String[2];
-				String line;
-				while ((line = br.readLine()) != null) {
-					if (!line.startsWith("#") && line.contains("=")) {
-						String[] kv = line.split("=");
-						if (kv[0].equalsIgnoreCase("server")) {
-							if (kv[1].contains(":")) {
-								String[] ip_port = kv[1].split(":");
-								server = new Server(ip_port[0], Integer.parseInt(ip_port[1]));
-							} else {
-								server = new Server(kv[1], 3333);
-							}
-						}
-						if (kv[0].equalsIgnoreCase("hwmon")) {
-							hwmon = kv[1].equalsIgnoreCase("true");
-						}
-						if (kv[0].equalsIgnoreCase("com_port")) {
-							com_port = kv[1];
-						}
-						//delay_fsec_show
-						if (kv[0].equalsIgnoreCase("delay_sec_show")) {
-							delay_sec_show = Integer.parseInt(kv[1]);
-						}
-						if (kv[0].equalsIgnoreCase("delay_fsec_show")) {
-							delay_fsec_show = Integer.parseInt(kv[1]);
-						}
-						if (kv[0].equalsIgnoreCase("delay_halfmin_show")) {
-							delay_halfmin_show = Integer.parseInt(kv[1]);
-						}
-						if (kv[0].equalsIgnoreCase("sec_line1")) {
-							lines[0] = kv[1];
-							if(lines[1] != null) { 
-								sec_lines.add(lines);
-								lines = new String[2];
-							}
-						}
-						if (kv[0].equalsIgnoreCase("sec_line2")) {
-							lines[1] = kv[1];
-							if(lines[0] != null) { 
-								sec_lines.add(lines);
-								lines = new String[2];
-							}
-						}
-						if (kv[0].equalsIgnoreCase("fsec_line1")) {
-							lines[0] = kv[1];
-							if(lines[1] != null) { 
-								fsec_lines.add(lines);
-								lines = new String[2];
-							}
-						}
-						if (kv[0].equalsIgnoreCase("fsec_line2")) {
-							lines[1] = kv[1];
-							if(lines[0] != null) { 
-								fsec_lines.add(lines);
-								lines = new String[2];
-							}
-						}
-						if (kv[0].equalsIgnoreCase("halfmin_line1")) {
-							lines[0] = kv[1];
-							if(lines[1] != null) { 
-								hmin_lines.add(lines);
-								lines = new String[2];
-							}
-						}
-						if (kv[0].equalsIgnoreCase("halfmin_line2")) {
-							lines[1] = kv[1];
-							if(lines[0] != null) { 
-								hmin_lines.add(lines);
-								lines = new String[2];
-							}
-						}
-					}
-				}
+				this.fillSettings(br);
 				br.close();
 			} catch (IOException e) {
 				e.printStackTrace();
 			}
 		}
+		
+		/**
+		 * Status Thread
+		 */
 		new Thread(new Runnable() {
 			@Override
 			public void run() {
 				while (RUNNING) {
 					try {
-						if (hwmon) {
+						//Intuitive Selecting defaulting with Detail-> HR-> One
+						//if (hwmon) {
 							while ((status = getStatusHR(server)) == null) {
 								Thread.sleep(1000);
 								continue;
 							}
-						} else {
+						/*} else {
 							while ((status = getStatusOne(server)) == null) {
 								Thread.sleep(1000);
 								continue;
 							}
-						}
-						Thread.sleep(1000);
+						}*/
 					} catch (IOException e) {
 						e.printStackTrace();
-
 					} catch (InterruptedException e) {
 						e.printStackTrace();
 					}
 				}
 			}
 		}).start();
+		
 	}
 	
+	private void fillSettings(BufferedReader br) throws NumberFormatException, IOException {
+		String[] lines = new String[2];
+		String line;
+		while ((line = br.readLine()) != null) {
+			if (!line.startsWith("#") && line.contains("=")) {
+				String[] kv = line.split("=");
+				if (kv[0].equalsIgnoreCase("server")) {
+					if (kv[1].contains(":")) {
+						String[] ip_port = kv[1].split(":");
+						server = new Server(ip_port[0], Integer.parseInt(ip_port[1]));
+					} else {
+						server = new Server(kv[1], 3333);
+					}
+				}
+				if (kv[0].equalsIgnoreCase("verbose")) {
+					verbose = kv[1].equalsIgnoreCase("true");
+				}
+				/*
+				if (kv[0].equalsIgnoreCase("hwmon")) {
+					hwmon = kv[1].equalsIgnoreCase("true");
+				}*/
+				if (kv[0].equalsIgnoreCase("com_port")) {
+					com_port = kv[1];
+				}
+				if (kv[0].equalsIgnoreCase("delay_sec_show")) {
+					delay_sec_show = Integer.parseInt(kv[1]);
+				}
+				if (kv[0].equalsIgnoreCase("delay_fsec_show")) {
+					delay_fsec_show = Integer.parseInt(kv[1]);
+				}
+				if (kv[0].equalsIgnoreCase("delay_halfmin_show")) {
+					delay_halfmin_show = Integer.parseInt(kv[1]);
+				}
+				if (kv[0].equalsIgnoreCase("sec_line1")) {
+					lines[0] = kv[1];
+					if(lines[1] != null) { 
+						sec_lines.add(lines);
+						lines = new String[2];
+					}
+				}
+				if (kv[0].equalsIgnoreCase("sec_line2")) {
+					lines[1] = kv[1];
+					if(lines[0] != null) { 
+						sec_lines.add(lines);
+						lines = new String[2];
+					}
+				}
+				if (kv[0].equalsIgnoreCase("fsec_line1")) {
+					lines[0] = kv[1];
+					if(lines[1] != null) { 
+						fsec_lines.add(lines);
+						lines = new String[2];
+					}
+				}
+				if (kv[0].equalsIgnoreCase("fsec_line2")) {
+					lines[1] = kv[1];
+					if(lines[0] != null) { 
+						fsec_lines.add(lines);
+						lines = new String[2];
+					}
+				}
+				if (kv[0].equalsIgnoreCase("halfmin_line1")) {
+					lines[0] = kv[1];
+					if(lines[1] != null) { 
+						hmin_lines.add(lines);
+						lines = new String[2];
+					}
+				}
+				if (kv[0].equalsIgnoreCase("halfmin_line2")) {
+					lines[1] = kv[1];
+					if(lines[0] != null) { 
+						hmin_lines.add(lines);
+						lines = new String[2];
+					}
+				}
+			}
+		}
+	}
+
 	public static void main(String[] args) {
+		
 		main = new Thread(new Main(args));
 		main.start();
+		
+		//new Thread(new Test_Main()).start();
 	}
 
 	@Override
 	public void run() {
-		//TODO Output all comports for configuration sake
 		SerialPort serial = null;
 		for (SerialPort comPort : SerialPort.getCommPorts()) {
 			String comName = comPort.getSystemPortName();
@@ -244,7 +307,7 @@ public class Main implements Runnable {
 			}
 		}
 		if(serial == null) {
-			System.out.println("Error Connecting to Com Port: \""+ com_port+"\"\nExiting...");
+			System.out.println("[EthSerialMonitor] Error Connecting to Com Port...\nExiting.");
 			System.exit(1);
 		}
 		//9600 baud, 8 bit, no parity, 1 stop bit.
@@ -260,116 +323,88 @@ public class Main implements Runnable {
 			
 			
 			OutputStreamWriter osw = new OutputStreamWriter(serial.getOutputStream());
-			//LCD setup
+			//LCD setup			
 			osw.write(LCD.SPECIAL);
-			osw.write(LCD.SIZE);
+			osw.write(0xD1);
 			osw.write(16);
 			osw.write(2);
 			osw.flush();
-			delay(20);
+			delay(20);			
 			osw.write(LCD.SPECIAL);
-			osw.write(LCD.BRIGHTNESS);
+			osw.write(0x50);
 			osw.write(200);
 			osw.flush();
-			delay(20);
+			delay(20);			
 			osw.write(LCD.SPECIAL);
-			osw.write(LCD.BRIGHTNESS);
+			osw.write(0x99);
 			osw.flush();
-			delay(20);
+			delay(20);			
 			osw.write(LCD.SPECIAL);
-			osw.write(LCD.UNDERLINE_OFF);
+			osw.write(0x4B);
 			osw.flush();
-			delay(20);
+			delay(20);			
 			osw.write(LCD.SPECIAL);
-			osw.write(LCD.BLOCK_OFF);
-			osw.flush();
-			delay(20);
+			osw.write(0x54);
+			osw.flush();			
 			osw.write(LCD.SPECIAL);
-			osw.write(LCD.CLEAR_SCREEN);
+			osw.write(0x52);
 			osw.flush();
-			delay(20);
+			delay(20);			
+			osw.write(LCD.SPECIAL);	
+			osw.write(0x58);
+			osw.flush();			
 			osw.write(LCD.SPECIAL);
-			osw.write(LCD.HOME);
+			osw.write(0x48);
 			osw.flush();
 			delay(20);
-			osw.write("Connecting...   ");
+			osw.write("Connecting...");
 			osw.flush();
 			delay(20);
-			
+			long fsec = System.currentTimeMillis();
+			long hsec = System.currentTimeMillis();
+			int r = 255,g=10,b=10;
+			int c = 0;
 			//TODO: Maybe Flash when share found
 
 			long half_sec = System.currentTimeMillis();
 			long sec = System.currentTimeMillis();
-			long fsec = System.currentTimeMillis();
 			long half_min = System.currentTimeMillis();
 			long min = System.currentTimeMillis();
 			
 			int fstep = 0;
 			
-			int r = 0,g = 0,b = 0;
-			boolean rb = false,gb = false,bb = false;
-			
-			boolean sync = false; //all from 0 to 255 (White I think)
-			
-			boolean redgreen_stepup; //r0-255 then g0-255 then b0-255
-			boolean redblue_stepup; //r0-255 then b0-255 then g0-255
-			boolean red_pulse; //r0-255 only
-			
-			boolean greenblue_stepup; //g0-255 then b0-255 then r0-255
-			boolean greenred_stepup; //g0-255 the r0-255 then b0-255
-			boolean green_pulse;
-			
-			boolean bluered_stepup; //b0-255 then r0-255 then g0-255
-			boolean bluegreen_stepup; //b0-255 then g0-255 then r0-255
-			boolean blue_pulse; 
-			
-			
-			
-			boolean custom = true;
 			
 			
 			while (RUNNING) {
-				if (System.currentTimeMillis() - half_sec >= 100) {
-					if(sync){
-						if(r<255 && !rb)
-							r++;
-						if(g<255 && !gb)
-							g++;
-						if(b<255 && !bb)
-							b++;
-						if(r>=255)
-							rb = true;
-						if(g>=255)
-							gb = true;
-						if(b>=255)
-							bb = true;
-						if(rb)
+				if (System.currentTimeMillis() - hsec >= 200) {
+					switch(c) {
+						case 0 :{
+							if(b<255)
+								b++;
+							if(b>=200)
 							r--;
-						if(gb)
-							g--;
-						if(bb)
-							b--;
-						if(rb&&gb&&bb&&r==0&&g==0&&b==0) {
-							rb = false;
-							gb = false;
-							bb = false;
-							sync = false;
+							if(b>=255 && r == 50) 
+								c++;						
+							break;
 						}
-					}
-					if(custom) {
-						r = 255;
-						if(g<255 && b == 0 && !gb)
-							g++;
-						if(!gb && g >= 255 && b == 0)
-							gb = true;
-						if(b == 0 && gb)
-							g--;
-						if(gb && b<255 && g == 0)
-							b++;
-						if(gb && b >= 255 && g == 0)
-							gb = false;
-						if(!gb && g == 0)
-							b--;
+						case 1 :{
+							if(g<255)
+								g++;
+							if(g>=200)
+								b--;
+							if(g>=255 && b == 50) 
+								c++;					
+							break;
+						}
+						case 2 :{
+							if(r<255)
+								r++;
+							if(r>=200)
+								g--;
+							if(r>=255 && g == 50) 
+								c = 0;
+							break;
+						}
 					}
 					osw.write(LCD.SPECIAL);
 					osw.write(LCD.RGB);
@@ -377,53 +412,21 @@ public class Main implements Runnable {
 					osw.write(g);
 					osw.write(b);
 					osw.flush();
-					delay(20);
-					half_sec = System.currentTimeMillis();
+					delay(10);
+					hsec = System.currentTimeMillis();
 				}
 				if (System.currentTimeMillis() - sec >= 1000) {
-					
-					//TODO: Translate config lines
+					if(DISCONNECTED) {
+						osw.write(LCD.SPECIAL);
+						osw.write(LCD.HOME);
+						osw.flush();
+						delay(20);
+						osw.write("Disconnected!                   ");
+						osw.flush();
+						delay(20);
+						continue;
+					}
 					for(String[] lines : sec_lines) {
-						//Status status;
-						/*
-						if(hwmon) {
-							while((status = getStatusHR(server)) == null) {
-								osw.write(LCD.SPECIAL);
-								osw.write(LCD.HOME);
-								osw.flush();
-								delay(20);
-								String line1 = "Connecting...";
-								while(line1.length()<16)
-									line1 += " ";
-								System.out.println("[SCREEN] " + line1);
-								osw.write(line1);
-								osw.write(line1);
-								osw.flush();
-								delay(1000);
-								continue;
-							}
-						} else {
-							while((status = getStatusOne(server)) == null) {
-								osw.write(LCD.SPECIAL);
-								osw.write(LCD.HOME);
-								osw.flush();
-								delay(20);
-								String line1 = "Connecting...";
-								while(line1.length()<16)
-									line1 += " ";
-								System.out.println("[SCREEN] " + line1);
-								osw.write(line1);
-								osw.write(line1);
-								osw.flush();
-								delay(1000);
-								continue;
-							}
-						}
-						*/
-						//osw.write(LCD.SPECIAL);
-						//osw.write(LCD.CLEAR_SCREEN);
-						//osw.flush();
-						//delay(20);
 						osw.write(LCD.SPECIAL);
 						osw.write(LCD.HOME);
 						osw.flush();
@@ -433,21 +436,20 @@ public class Main implements Runnable {
 						String line1 = this.translate(lines[0], status);
 						String line2 = this.translate(lines[1], status);
 						String command = line1+line2;
-						System.out.println("\n[SCREEN] {" + line1 + "}\n[SCREEN] {" + line2+"}");
-						//System.out.println("[COLOR ] " +r+","+g+","+b);
+						if(verbose) 
+							System.out.println("\n[SCREEN] {" + line1 + "}\n[SCREEN] {" + line2+"}");
 						osw.write(command);
 						osw.flush();
-						//delay(delay_sec_show);
+						//delay(delay_sec_show); //No Delays
 					}
 					sec = System.currentTimeMillis();
 				}else if (System.currentTimeMillis() - fsec >= 10000) {
 					//Test: May not have to clear
-					
 					osw.write(LCD.SPECIAL);
 					osw.write(LCD.CLEAR_SCREEN);
 					osw.flush();
 					delay(20);
-					
+					//Test End					
 					if(fstep >= fsec_lines.size()) 
 						fstep = 0;
 					String[] lines = fsec_lines.get(fstep);
@@ -458,49 +460,26 @@ public class Main implements Runnable {
 					String line1 = this.translate(lines[0], status);
 					String line2 = this.translate(lines[1], status);
 					String command = line1+line2;
-					System.out.println("\n[SCREEN] {" + line1 + "}\n[SCREEN] {" + line2+"}");
+					if(verbose) 
+						System.out.println("\n[SCREEN] {" + line1 + "}\n[SCREEN] {" + line2+"}");
 					osw.write(command);
 					osw.flush();
 					delay(delay_fsec_show);
 					fstep++;
 					fsec = System.currentTimeMillis();					
 				}else if (System.currentTimeMillis() - half_min >= 30000) {
-					//osw.write(LCD.SPECIAL);
-					//osw.write(LCD.CLEAR_SCREEN);
-					//osw.flush();
-					//delay(20);
 					osw.write(LCD.SPECIAL);
 					osw.write(LCD.HOME);
 					osw.flush();
 					delay(20);
-					//System.out.println("[Serial][Writer] Sent: " + LCD.SPECIAL + LCD.CLEAR_SCREEN);
-					/*
-					StatusHR status = (StatusHR) getStatusHR(server);
-					if(status == null)
-						continue;
-						*/
 					for(String[] lines : hmin_lines) {
 						String line1 = this.translate(lines[0], status);
 						String line2 = this.translate(lines[1], status);
 						String command = line1+line2;
-						System.out.println("\n[SCREEN] {" + line1 + "}\n[SCREEN] {" + line2+"}");
+						if(verbose) 
+							System.out.println("\n[SCREEN] {" + line1 + "}\n[SCREEN] {" + line2+"}");
 						osw.write(command);
 						osw.flush();
-						/*
-						String line1 = "GPU#" + String.valueOf(i)+" "+String.valueOf(status.getGPURate(i));
-						while(line1.length()<16)
-							line1 += " ";
-						String temp = String.valueOf(status.getSpecificTemp(i));
-						if(temp.length() > 4)
-							temp = String.valueOf(status.getSpecificTemp(i)).substring(0, 4); //Out of bounds
-						String fan = String.valueOf(status.getSpecificFan(i));
-						String line2 = temp + "C - "+ fan + "% Fan";
-						while(line2.length()<16)
-							line2 += " ";
-						System.out.println("\n[SCREEN] {" + line1 + "}\n[SCREEN] {" + line2+"}");
-						//System.out.println("[COLOR ] " +r+","+g+","+b);
-						 * 
-						 */
 						delay(delay_halfmin_show);
 					}
 					half_min = System.currentTimeMillis();
@@ -526,6 +505,8 @@ public class Main implements Runnable {
 	# gpu{id}.watt{spaces} = Wattage of specific GPU 
 	 */
 	public String translate(String line, Status status) {
+		if(status == null)
+			return "";
 		line = this.swap("avghash.", line, String.valueOf(status.getHashrate()));
 		line = this.swap("avgtemp.", line, String.valueOf(status.getAvgTemp()));
 		line = this.swap("avgfan.", line, String.valueOf(status.getAvgFan()));
@@ -582,7 +563,13 @@ public class Main implements Runnable {
 	
 	public String swap(String key, String find, String replace) {
 		if(find.contains(key)) {
-			int val = Integer.parseInt(find.split("\\.")[1].substring(0, 1));
+			int val = 0;
+			try {
+				val = Integer.parseInt(find.split("\\.")[1].substring(0, 1)); //NFE?
+			} catch (NumberFormatException e) {
+				System.out.print("Tried to parse "+find.split("\\.")[1].substring(0, 1)+" to a number.");
+				System.out.print("Original:"+find);
+			}
 			if(replace.length() > val)
 				return find.replaceAll(key.substring(0, key.length()-1)+"\\.[0-9]", String.valueOf(replace).substring(0, val));
 			else
@@ -600,8 +587,17 @@ public class Main implements Runnable {
 	}
 	
 	//Borrowed from EthMonitor
+	public StatusDetail getStatusDetail(Server s) throws IOException {
+		String data = this.connect(s.getIPAddress(), s.getPort(), StatusOne.COMMAND);
+		if (data != null)
+			return new StatusDetail(data);
+		return null;
+	}
+	/*
+	//Borrowed from EthMonitor
+	@Deprecated
 	public StatusOne getStatusOne(Server s) throws IOException {
-		String data = this.connect(s.getIPAddress(), s.getPort(), OVERALL_STATUS);
+		String data = this.connect(s.getIPAddress(), s.getPort(), StatusOne.COMMAND);
 		if (data == null)
 			return null;
 		JSONObject json_obj;
@@ -619,33 +615,24 @@ public class Main implements Runnable {
 		}
 		return null;
 	}
-
+	*/
 	//Borrowed from EthMonitor
+	@Deprecated
 	public StatusHR getStatusHR(Server s) throws IOException {
-		String data = this.connect(s.getIPAddress(), s.getPort(), DETAILED_STATUS);
-		if (data == null)
-			return null;
-		JSONObject json_obj;
-		try {
-			json_obj = (JSONObject) parser.parse(data);
-			if (json_obj != null) {
-				Object obj = json_obj.get("result");
-				if (obj instanceof JSONObject)
-					return new StatusHR((JSONObject) obj);
-			}
-		} catch (ParseException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
+		String data = this.connect(s.getIPAddress(), s.getPort(), StatusHR.COMMAND);
+		if (data != null)
+			return new StatusHR(data);
 		return null;
 
 	}
-
+	
+	
 	//Borrowed from EthMonitor
 	public String connect(String ip_address, int port, String command) throws UnknownHostException {
 		try {
 			if (sock == null || RECONNECT) {
-				System.out.println("[Socket] Opening Socket to " + ip_address + ":" + port + " !");
+				if(verbose) 
+					System.out.println("[Socket] Opening Socket to " + ip_address + ":" + port + " !");
 				sock = new Socket(InetAddress.getByName(ip_address), port);
 				RECONNECT = false;
 			}
@@ -662,11 +649,11 @@ public class Main implements Runnable {
 			if (!DISCONNECTED) {
 				DISCONNECTED = true;
 				RECONNECT = true;
-				System.out.print(e.getMessage());
+				System.out.println(e.getMessage());
 				System.out.println("[Socket] Disconnected from server!");
 			}
 		}
-		return "{}";
+		return null;
 	}
 
 }
