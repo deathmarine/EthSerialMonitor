@@ -1,5 +1,5 @@
 # EthSerialMonitor
-A eth api socket to serial interface for a 16x2 LCD Display
+An eth api socket to serial interface for a 16x2 LCD Display
 
 **Any ideas, comments, or suggestions can be made via inline comments in a commit, a pull request, or issue tracker.**
 ## Concept
